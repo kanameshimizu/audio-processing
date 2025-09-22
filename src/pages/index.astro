@@ -1,0 +1,495 @@
+---
+import { segmentsToSrt } from "../lib/srt";
+---
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenAI Audio Tools</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.6;
+        margin: 0;
+        padding: 2rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        color: #333;
+      }
+      
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 16px;
+        padding: 2rem;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+      }
+      
+      hgroup {
+        text-align: center;
+        margin-bottom: 3rem;
+      }
+      
+      hgroup h1 {
+        margin: 0 0 0.5rem 0;
+        font-size: 2.5rem;
+        background: linear-gradient(45deg, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      
+      hgroup p {
+        margin: 0;
+        color: #666;
+        font-size: 1.1rem;
+      }
+      
+      .tool-section {
+        background: #f8f9fa;
+        border-radius: 12px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+      }
+      
+      .tool-section:last-child {
+        margin-bottom: 0;
+      }
+      
+      h2 {
+        margin: 0 0 1.5rem 0;
+        color: #333;
+        font-size: 1.5rem;
+      }
+      
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+      
+      .form-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+      }
+      
+      input, select, textarea, button {
+        padding: 0.75rem;
+        border: 2px solid #e1e5e9;
+        border-radius: 8px;
+        font-size: 1rem;
+        transition: all 0.2s ease;
+      }
+      
+      input:focus, select:focus, textarea:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
+      
+      textarea {
+        min-height: 120px;
+        resize: vertical;
+        font-family: inherit;
+      }
+      
+      button {
+        background: linear-gradient(45deg, #667eea, #764ba2);
+        color: white;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      
+      button:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+      }
+      
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+      
+      #transcribeResult {
+        background: white;
+        border: 2px solid #e1e5e9;
+        min-height: 150px;
+        margin-bottom: 1rem;
+      }
+      
+      #audioPlayer {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        border: 2px solid #e1e5e9;
+      }
+      
+      audio {
+        width: 100%;
+        margin-bottom: 1rem;
+      }
+      
+      pre {
+        background: #2d3748;
+        color: #e2e8f0;
+        padding: 1rem;
+        border-radius: 8px;
+        overflow-x: auto;
+        font-size: 0.875rem;
+      }
+      
+      @media (max-width: 768px) {
+        body {
+          padding: 1rem;
+        }
+        
+        .container {
+          padding: 1.5rem;
+        }
+        
+        hgroup h1 {
+          font-size: 2rem;
+        }
+        
+        .form-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <hgroup>
+        <h1>OpenAI Audio Tools</h1>
+        <p>音声・動画の文字起こしとテキストの音声変換</p>
+      </hgroup>
+      
+      <section class="tool-section">
+        <h2>🎵 音声・動画 → テキスト（Whisper）</h2>
+        <form id="transcribeForm" onsubmit="return false;">
+          <input type="file" name="file" accept="audio/*,video/*" required />
+          <select name="mode">
+            <option value="transcribe">文字起こし（原文）</option>
+            <option value="translate_en">英語へ翻訳（Whisper）</option>
+          </select>
+          <select name="timestamps">
+            <option value="both">タイムスタンプ: word+segment</option>
+            <option value="segment">segment のみ</option>
+            <option value="word">word のみ</option>
+            <option value="none">なし</option>
+          </select>
+          <button id="transcribeBtn" type="button">文字起こし実行</button>
+        </form>
+        <textarea id="transcribeResult" placeholder="文字起こし結果がここに表示されます..."></textarea>
+        <pre id="transcribeJson" style="display: none;"></pre>
+        <button id="downloadSrt" disabled>SRT をダウンロード</button>
+      </section>
+
+      <section class="tool-section">
+        <h2>🔊 テキスト → 音声（TTS）</h2>
+        <form id="ttsForm" onsubmit="return false;">
+          <textarea name="text" placeholder="音声にしたいテキストを入力してください...（長文の場合は自動で分割されます）" required></textarea>
+          <div id="textStats" style="font-size: 0.9rem; color: #666; margin-top: 0.5rem;"></div>
+          <div class="form-row">
+            <select name="voice">
+              <option value="alloy">Alloy（中性的）</option>
+              <option value="echo">Echo（男性的）</option>
+              <option value="fable">Fable（英国アクセント）</option>
+              <option value="onyx">Onyx（深い男性声）</option>
+              <option value="nova">Nova（若い女性声）</option>
+              <option value="shimmer">Shimmer（女性的）</option>
+            </select>
+            <select name="model">
+              <option value="tts-1">標準品質（高速）</option>
+              <option value="tts-1-hd">高品質（低速）</option>
+            </select>
+            <select name="format">
+              <option value="mp3">MP3</option>
+              <option value="opus">Opus</option>
+              <option value="aac">AAC</option>
+              <option value="flac">FLAC</option>
+            </select>
+          </div>
+          <button id="ttsBtn" type="button">音声生成</button>
+        </form>
+        <div id="ttsProgress" style="display: none;">
+          <div style="background: #e1e5e9; border-radius: 4px; height: 8px; margin: 1rem 0;">
+            <div id="progressBar" style="background: linear-gradient(45deg, #667eea, #764ba2); height: 100%; border-radius: 4px; width: 0%; transition: width 0.3s ease;"></div>
+          </div>
+          <div id="progressText" style="text-align: center; font-size: 0.9rem; color: #666;"></div>
+        </div>
+        <div id="audioPlayer" style="display: none;">
+          <audio controls></audio>
+          <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+            <button id="downloadAudio">音声ダウンロード</button>
+            <button id="downloadAll" style="display: none;">全音声をZIPダウンロード</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script>
+      // Whisper関連の要素
+      const transcribeForm = document.getElementById('transcribeForm') as HTMLFormElement;
+      const transcribeBtn = document.getElementById('transcribeBtn') as HTMLButtonElement;
+      const transcribeResult = document.getElementById('transcribeResult') as HTMLTextAreaElement;
+      const transcribeJson = document.getElementById('transcribeJson') as HTMLPreElement;
+      const downloadSrtBtn = document.getElementById('downloadSrt') as HTMLButtonElement;
+      
+      // TTS関連の要素
+      const ttsForm = document.getElementById('ttsForm') as HTMLFormElement;
+      const ttsBtn = document.getElementById('ttsBtn') as HTMLButtonElement;
+      const audioPlayer = document.getElementById('audioPlayer') as HTMLDivElement;
+      const downloadAudioBtn = document.getElementById('downloadAudio') as HTMLButtonElement;
+      const downloadAllBtn = document.getElementById('downloadAll') as HTMLButtonElement;
+      const textStats = document.getElementById('textStats') as HTMLDivElement;
+      const ttsProgress = document.getElementById('ttsProgress') as HTMLDivElement;
+      const progressBar = document.getElementById('progressBar') as HTMLDivElement;
+      const progressText = document.getElementById('progressText') as HTMLDivElement;
+      
+      let currentAudioBlob: Blob | null = null;
+      let currentTranscriptionData: any = null;
+      let generatedAudioFiles: Blob[] = [];
+      
+      // 文字起こし機能
+      async function runTranscribe() {
+        if (!transcribeForm || !transcribeResult || !transcribeJson) return;
+        
+        transcribeBtn.textContent = '処理中...';
+        transcribeBtn.disabled = true;
+        
+        try {
+          const fd = new FormData(transcribeForm);
+          const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+          const data = await res.json();
+          
+          transcribeResult.value = data.text || '';
+          transcribeJson.textContent = JSON.stringify(data, null, 2);
+          currentTranscriptionData = data;
+          
+          // SRTダウンロードボタンを有効化（セグメントデータがある場合）
+          if (data.segments && data.segments.length > 0) {
+            downloadSrtBtn.disabled = false;
+          }
+        } catch (error) {
+          console.error('Transcription error:', error);
+          transcribeResult.value = 'エラーが発生しました: ' + error;
+        } finally {
+          transcribeBtn.textContent = '文字起こし実行';
+          transcribeBtn.disabled = false;
+        }
+      }
+      
+      // テキスト分割機能
+      function splitText(text: string, maxLength: number = 4000): string[] {
+        if (text.length <= maxLength) return [text];
+        
+        const chunks: string[] = [];
+        const sentences = text.split(/[。！？\n]/);
+        let currentChunk = '';
+        
+        for (const sentence of sentences) {
+          const testChunk = currentChunk + sentence + '。';
+          if (testChunk.length > maxLength && currentChunk.length > 0) {
+            chunks.push(currentChunk.trim());
+            currentChunk = sentence + '。';
+          } else {
+            currentChunk = testChunk;
+          }
+        }
+        
+        if (currentChunk.trim()) {
+          chunks.push(currentChunk.trim());
+        }
+        
+        return chunks.filter(chunk => chunk.length > 0);
+      }
+      
+      // 文字数統計更新
+      function updateTextStats() {
+        const textarea = ttsForm.querySelector('textarea[name="text"]') as HTMLTextAreaElement;
+        const text = textarea.value;
+        const chunks = splitText(text);
+        
+        if (text.length === 0) {
+          textStats.textContent = '';
+          return;
+        }
+        
+        textStats.textContent = `文字数: ${text.length} | 分割数: ${chunks.length}チャンク`;
+        if (chunks.length > 1) {
+          textStats.textContent += ` | 推定時間: ${chunks.length * 3}秒`;
+        }
+      }
+      
+      // TTS機能（長文対応）
+      async function runTTS() {
+        if (!ttsForm) return;
+        
+        const textarea = ttsForm.querySelector('textarea[name="text"]') as HTMLTextAreaElement;
+        const text = textarea.value.trim();
+        
+        if (!text) {
+          alert('テキストを入力してください');
+          return;
+        }
+        
+        const chunks = splitText(text);
+        generatedAudioFiles = [];
+        
+        ttsBtn.textContent = '音声生成中...';
+        ttsBtn.disabled = true;
+        ttsProgress.style.display = 'block';
+        audioPlayer.style.display = 'none';
+        
+        try {
+          for (let i = 0; i < chunks.length; i++) {
+            const progress = ((i + 1) / chunks.length) * 100;
+            progressBar.style.width = `${progress}%`;
+            progressText.textContent = `${i + 1} / ${chunks.length} チャンクを処理中...`;
+            
+            const fd = new FormData();
+            fd.append('text', chunks[i]);
+            fd.append('voice', (ttsForm.querySelector('select[name="voice"]') as HTMLSelectElement).value);
+            fd.append('model', (ttsForm.querySelector('select[name="model"]') as HTMLSelectElement).value);
+            fd.append('format', (ttsForm.querySelector('select[name="format"]') as HTMLSelectElement).value);
+            
+            const res = await fetch('/api/text-to-speech', { method: 'POST', body: fd });
+            
+            if (!res.ok) {
+              const errorData = await res.json();
+              throw new Error(errorData.error || 'TTS API error');
+            }
+            
+            const audioBlob = await res.blob();
+            generatedAudioFiles.push(audioBlob);
+            
+            // 少し待機（API制限対策）
+            if (i < chunks.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          }
+          
+          // 最初の音声ファイルをプレビュー
+          currentAudioBlob = generatedAudioFiles[0];
+          const audioElement = audioPlayer.querySelector('audio') as HTMLAudioElement;
+          audioElement.src = URL.createObjectURL(currentAudioBlob);
+          
+          audioPlayer.style.display = 'block';
+          ttsProgress.style.display = 'none';
+          
+          // 複数ファイルがある場合はZIPダウンロードボタンを表示
+          if (generatedAudioFiles.length > 1) {
+            downloadAllBtn.style.display = 'inline-block';
+          }
+          
+        } catch (error) {
+          console.error('TTS error:', error);
+          alert('音声生成エラー: ' + error);
+          ttsProgress.style.display = 'none';
+        } finally {
+          ttsBtn.textContent = '音声生成';
+          ttsBtn.disabled = false;
+        }
+      }
+      
+      // SRTダウンロード機能
+      function downloadSRT() {
+        if (!currentTranscriptionData?.segments) return;
+        
+        const srtContent = segmentsToSrt(currentTranscriptionData.segments);
+        const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'subtitles.srt';
+        a.click();
+        
+        URL.revokeObjectURL(url);
+      }
+      
+      // 音声ダウンロード機能
+      function downloadAudio() {
+        if (!currentAudioBlob) return;
+        
+        const url = URL.createObjectURL(currentAudioBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        // フォーマットに基づいてファイル名を設定
+        const formatSelect = ttsForm.querySelector('select[name="format"]') as HTMLSelectElement;
+        const format = formatSelect.value;
+        a.download = `speech.${format}`;
+        a.click();
+        
+        URL.revokeObjectURL(url);
+      }
+      
+      // SRT変換関数（lib/srt.tsから移植）
+      function toSrtTime(sec: number): string {
+        const h = Math.floor(sec / 3600).toString().padStart(2, "0");
+        const m = Math.floor((sec % 3600) / 60).toString().padStart(2, "0");
+        const s = Math.floor(sec % 60).toString().padStart(2, "0");
+        const ms = Math.floor((sec % 1) * 1000).toString().padStart(3, "0");
+        return `${h}:${m}:${s},${ms}`;
+      }
+      
+      function segmentsToSrt(segments: any[]): string {
+        return segments
+          .map((seg, i) => {
+            const idx = (i + 1).toString();
+            const period = `${toSrtTime(seg.start)} --> ${toSrtTime(seg.end)}`;
+            const text = (seg.text || "").trim();
+            return `${idx}\n${period}\n${text}\n`;
+          })
+          .join("\n");
+      }
+      
+      // ZIPダウンロード機能（複数音声ファイル）
+      async function downloadAllAudio() {
+        if (generatedAudioFiles.length === 0) return;
+        
+        // JSZipライブラリが必要ですが、シンプルな実装として個別ダウンロード
+        for (let i = 0; i < generatedAudioFiles.length; i++) {
+          const url = URL.createObjectURL(generatedAudioFiles[i]);
+          const a = document.createElement('a');
+          a.href = url;
+          
+          const formatSelect = ttsForm.querySelector('select[name="format"]') as HTMLSelectElement;
+          const format = formatSelect.value;
+          a.download = `speech_part_${i + 1}.${format}`;
+          a.click();
+          
+          URL.revokeObjectURL(url);
+          
+          // ダウンロード間隔を空ける
+          if (i < generatedAudioFiles.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        }
+      }
+      
+      // イベントリスナー
+      transcribeBtn?.addEventListener('click', runTranscribe);
+      ttsBtn?.addEventListener('click', runTTS);
+      downloadSrtBtn?.addEventListener('click', downloadSRT);
+      downloadAudioBtn?.addEventListener('click', downloadAudio);
+      downloadAllBtn?.addEventListener('click', downloadAllAudio);
+      
+      // テキストエリアの入力監視
+      const textArea = ttsForm?.querySelector('textarea[name="text"]') as HTMLTextAreaElement;
+      textArea?.addEventListener('input', updateTextStats);
+    </script>
+  </body>
+</html>
